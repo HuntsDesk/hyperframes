@@ -3,7 +3,7 @@ import { Duplex } from "node:stream";
 import { createReadStream, existsSync, statSync } from "node:fs";
 import { isAbsolute, relative, resolve } from "node:path";
 import { getMimeType } from "@hyperframes/core/studio-api";
-import { decodeWellFormedEscapes } from "@hyperframes/studio-server";
+import { decodeWellFormedEscapes, openRangeEnd } from "@hyperframes/studio-server";
 import { resolveAutoProxy } from "./projectConfig.js";
 import { injectMediaCodecMap } from "./compositionServer.js";
 import {
@@ -133,7 +133,8 @@ function serveFileWithRange(
 
   // Resolve the requested byte window. Absent/malformed Range serves the
   // whole file (200); a valid `bytes=start-end` (including the open-ended
-  // `start-` and suffix `-N` forms) serves a 206 slice.
+  // `start-` and suffix `-N` forms) serves a 206 slice. An open-ended range of
+  // audio/video gets a bounded piece (see OPEN_MEDIA_RANGE_BYTES).
   const last = size - 1;
   let start = 0;
   let end = last;
@@ -142,7 +143,11 @@ function serveFileWithRange(
   if (match) {
     const hasStart = match[1] !== "";
     start = hasStart ? Number(match[1]) : Math.max(0, size - Number(match[2]));
-    end = !hasStart ? last : match[2] !== "" ? Math.min(Number(match[2]), last) : last;
+    end = !hasStart
+      ? last
+      : match[2] !== ""
+        ? Math.min(Number(match[2]), last)
+        : openRangeEnd(start, last, contentType);
 
     if (start > end || start > last) {
       res.writeHead(416, { ...headers, "Content-Range": `bytes */${size}` });
